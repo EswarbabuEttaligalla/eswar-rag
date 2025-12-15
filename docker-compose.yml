@@ -1,0 +1,89 @@
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  chroma:
+    image: chromadb/chroma:0.5.4
+    environment:
+      IS_PERSISTENT: "TRUE"
+      PERSIST_DIRECTORY: /chroma/chroma
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+
+  backend:
+    build: ./backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://rag:rag@postgres:5432/rag
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+      REDIS_HOST: redis
+      CHROMA_HOST: chroma
+      CHROMA_PORT: 8000
+      DATA_DIR: /data
+      UPLOAD_DIR: /data/uploads
+      VECTOR_DIR: /data/vectors
+      ALLOWED_ORIGINS: http://localhost:3000
+    depends_on:
+      - postgres
+      - redis
+      - chroma
+    ports:
+      - "8000:8000"
+    volumes:
+      - backend_data:/data
+
+  worker:
+    build: ./backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://rag:rag@postgres:5432/rag
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+      REDIS_HOST: redis
+      CHROMA_HOST: chroma
+      CHROMA_PORT: 8000
+      DATA_DIR: /data
+      UPLOAD_DIR: /data/uploads
+      VECTOR_DIR: /data/vectors
+    command: ["python", "-m", "app.workers.worker"]
+    depends_on:
+      - backend
+      - redis
+      - postgres
+      - chroma
+    volumes:
+      - backend_data:/data
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_PATH: ${VITE_API_BASE_PATH}
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+
+volumes:
+  postgres_data:
+  redis_data:
+  chroma_data:
+  backend_data:
