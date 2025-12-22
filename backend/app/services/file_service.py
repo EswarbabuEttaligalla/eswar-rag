@@ -8,7 +8,6 @@ import pdfplumber
 from fastapi import HTTPException, UploadFile
 from docx import Document as DocxDocument
 from pypdf import PdfReader
-import re
 
 from app.core.config import settings
 from app.utils.file_utils import get_extension, sanitize_filename, validate_upload_file
@@ -48,7 +47,7 @@ class FileService:
             text = await asyncio.to_thread(self._extract_csv_text, file_path)
         else:
             text = await asyncio.to_thread(self._extract_txt_text, file_path)
-        return self._preserve_structure(text)
+        return normalize_text(text)
 
     def _extract_pdf_text(self, file_path: str) -> str:
         try:
@@ -69,13 +68,3 @@ class FileService:
     def _extract_txt_text(self, file_path: str) -> str:
         with open(file_path, "r", encoding="utf-8", errors="ignore") as handle:
             return handle.read()
-
-    def _preserve_structure(self, text: str) -> str:
-        text = text.replace("\x00", " ")
-        text = text.replace("\r\n", "\n").replace("\r", "\n")
-        lines = []
-        for line in text.split("\n"):
-            cleaned = re.sub(r"[ \t]+", " ", line).strip()
-            if cleaned:
-                lines.append(cleaned)
-        return "\n".join(lines)
