@@ -21,8 +21,7 @@ rq==1.16.1
 
 chromadb==0.5.5
 
-sentence-transformers==2.6.1
-torch==2.2.2
+sentence-transformers==2.7.0
 transformers==4.41.2
 scikit-learn==1.5.1
 
