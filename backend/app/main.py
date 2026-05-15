@@ -38,6 +38,11 @@ app.add_middleware(LoggingMiddleware)
 app.add_middleware(RateLimitMiddleware)
 
 
+@app.get("/")
+async def root():
+    return {"status": "ok", "service": "eswar-rag"}
+
+
 @app.exception_handler(RateLimitExceeded)
 async def rate_limit_handler(request, exc):
     return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded"})
