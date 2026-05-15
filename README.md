@@ -1,6 +1,7 @@
 # Private Knowledge Assistant
 
 Enterprise-grade retrieval augmented generation for resume and document workflows.
+Live : https://eswar-rag.vercel.app/login
 
 ## Architecture Overview
 
