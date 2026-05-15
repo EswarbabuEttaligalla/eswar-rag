@@ -9,8 +9,17 @@ export default function MessageBubble({ role, content, sources }) {
       >
         <p className="whitespace-pre-wrap leading-relaxed">{content}</p>
         {sources && sources.length > 0 && !isUser && (
-          <div className="mt-3 text-xs text-slate-500">
-            Sources: {sources.length}
+          <div className="mt-3 space-y-2 text-xs text-slate-500">
+            <div className="font-medium text-slate-600">Sources</div>
+            <ul className="space-y-1">
+              {sources.slice(0, 3).map((source, index) => (
+                <li key={`${source.document_id}-${source.chunk_id}-${index}`}>
+                  [{index + 1}] {source.document_id}
+                  {source.chunk_id ? ` / ${source.chunk_id}` : ""}
+                  {typeof source.score === "number" ? ` - ${source.score.toFixed(3)}` : ""}
+                </li>
+              ))}
+            </ul>
           </div>
         )}
       </div>

@@ -23,6 +23,8 @@ class FileService:
         path = os.path.join(settings.UPLOAD_DIR, stored_name)
         max_bytes = settings.MAX_UPLOAD_MB * 1024 * 1024
 
+        os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+
         size = 0
         with open(path, "wb") as out:
             while True:

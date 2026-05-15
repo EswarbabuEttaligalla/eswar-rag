@@ -35,14 +35,20 @@ export default function ChatWindow() {
   return (
     <div className="flex flex-col gap-4 h-full">
       <div className="flex-1 space-y-4 overflow-y-auto pr-2">
-        {messages.map((message) => (
-          <MessageBubble
-            key={message.id}
-            role={message.role}
-            content={message.content}
-            sources={message.sources}
-          />
-        ))}
+        {messages.length === 0 ? (
+          <div className="text-sm text-slate-500">
+            Ask a question after uploading a document to see a cited answer here.
+          </div>
+        ) : (
+          messages.map((message) => (
+            <MessageBubble
+              key={message.id}
+              role={message.role}
+              content={message.content}
+              sources={message.sources}
+            />
+          ))
+        )}
       </div>
       <div className="flex gap-2">
         <input

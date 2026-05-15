@@ -1,4 +1,5 @@
 import json
+import logging
 import time
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
@@ -14,6 +15,7 @@ from app.services.rag_service import RagService
 from app.rag.memory import build_chat_history
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post("/", response_model=ChatOut)
@@ -85,15 +87,18 @@ async def ask_chat(
     )
     latency_ms = (time.monotonic() - start) * 1000
     token_count = len(response.get("answer", "").split())
-    await AnalyticsService(session).record_event(
-        "query",
-        user_id=user.id,
-        payload={
-            "latency_ms": round(latency_ms, 2),
-            "model": "rag",
-            "token_count": token_count,
-        },
-    )
+    try:
+        await AnalyticsService(session).record_event(
+            "query",
+            user_id=user.id,
+            payload={
+                "latency_ms": round(latency_ms, 2),
+                "model": "rag",
+                "token_count": token_count,
+            },
+        )
+    except Exception as exc:
+        logger.warning("Query analytics recording failed for chat %s: %s", chat_id, exc)
     await chat_service.add_message(chat_id, "assistant", response["answer"], response["sources"])
     return response
 
@@ -119,15 +124,18 @@ async def stream_chat(
     )
     latency_ms = (time.monotonic() - start) * 1000
     token_count = len(response.get("answer", "").split())
-    await AnalyticsService(session).record_event(
-        "query",
-        user_id=user.id,
-        payload={
-            "latency_ms": round(latency_ms, 2),
-            "model": "rag",
-            "token_count": token_count,
-        },
-    )
+    try:
+        await AnalyticsService(session).record_event(
+            "query",
+            user_id=user.id,
+            payload={
+                "latency_ms": round(latency_ms, 2),
+                "model": "rag",
+                "token_count": token_count,
+            },
+        )
+    except Exception as exc:
+        logger.warning("Stream query analytics recording failed for chat %s: %s", chat_id, exc)
     answer = response["answer"]
     sources = response["sources"]
 

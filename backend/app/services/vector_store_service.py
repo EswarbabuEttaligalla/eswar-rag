@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import logging
+import os
+
 import chromadb
 
 from app.core.config import settings
+
+
+logger = logging.getLogger(__name__)
 
 
 class BaseVectorStore:
@@ -18,11 +24,26 @@ class BaseVectorStore:
 
 class ChromaVectorStore(BaseVectorStore):
     def __init__(self):
-        self.client = chromadb.HttpClient(host=settings.CHROMA_HOST, port=settings.CHROMA_PORT)
-        self.collection = self.client.get_or_create_collection(
+        self.collection = self._init_collection()
+
+    def _create_collection(self, client):
+        return client.get_or_create_collection(
             name=settings.CHROMA_COLLECTION,
             metadata={"hnsw:space": "cosine"},
         )
+
+    def _init_collection(self):
+        try:
+            client = chromadb.HttpClient(host=settings.CHROMA_HOST, port=settings.CHROMA_PORT)
+            collection = self._create_collection(client)
+            logger.info("Using remote Chroma vector store at %s:%s", settings.CHROMA_HOST, settings.CHROMA_PORT)
+            return collection
+        except Exception as exc:
+            fallback_dir = os.path.join(settings.VECTOR_DIR, "chroma")
+            os.makedirs(fallback_dir, exist_ok=True)
+            logger.warning("Falling back to persistent Chroma store at %s: %s", fallback_dir, exc)
+            client = chromadb.PersistentClient(path=fallback_dir)
+            return self._create_collection(client)
 
     def upsert(self, ids: list[str], embeddings: list[list[float]], documents: list[str], metadatas: list[dict]):
         self.collection.upsert(ids=ids, embeddings=embeddings, documents=documents, metadatas=metadatas)

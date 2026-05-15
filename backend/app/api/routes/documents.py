@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, File, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,6 +10,7 @@ from app.services.analytics_service import AnalyticsService
 from app.services.document_service import DocumentService
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post("/upload", response_model=DocumentUploadResponse)
@@ -18,11 +21,14 @@ async def upload_document(
 ):
     service = DocumentService(session)
     document = await service.upload(user.id, file)
-    await AnalyticsService(session).record_event(
-        "upload",
-        user_id=user.id,
-        payload={"document_id": str(document.id), "size": document.size},
-    )
+    try:
+        await AnalyticsService(session).record_event(
+            "upload",
+            user_id=user.id,
+            payload={"document_id": str(document.id), "size": document.size},
+        )
+    except Exception as exc:
+        logger.warning("Upload analytics recording failed for document %s: %s", document.id, exc)
     return DocumentUploadResponse(
         document=DocumentOut(
             id=str(document.id),
