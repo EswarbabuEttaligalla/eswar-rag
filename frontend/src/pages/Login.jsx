@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth.js";
+import { getApiErrorMessage } from "../utils/apiError.js";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -44,7 +45,9 @@ export default function Login() {
         </button>
       </form>
       {loginMutation.isError && (
-        <p className="text-sm text-red-600">Login failed. Check credentials.</p>
+        <p className="text-sm text-red-600">
+          {getApiErrorMessage(loginMutation.error, "Login failed. Check credentials.")}
+        </p>
       )}
       <p className="text-sm text-slate-500">
         New here? <a href="/register" className="text-ember">Create an account</a>

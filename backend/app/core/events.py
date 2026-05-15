@@ -20,8 +20,9 @@ async def lifespan(app: FastAPI):
     ensure_dirs([settings.DATA_DIR, settings.UPLOAD_DIR, settings.VECTOR_DIR])
     try:
         await init_db()
-    except Exception as exc:
-        logger.warning("Database initialization skipped: %s", exc)
+    except Exception:
+        logger.exception("Database initialization failed")
+        raise
     try:
         await init_redis()
     except Exception as exc:

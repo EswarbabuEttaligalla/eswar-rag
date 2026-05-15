@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth.js";
+import { getApiErrorMessage } from "../utils/apiError.js";
 
 export default function Register() {
   const navigate = useNavigate();
@@ -51,7 +52,9 @@ export default function Register() {
         </button>
       </form>
       {registerMutation.isError && (
-        <p className="text-sm text-red-600">Registration failed. Try again.</p>
+        <p className="text-sm text-red-600">
+          {getApiErrorMessage(registerMutation.error, "Registration failed. Try again.")}
+        </p>
       )}
       <p className="text-sm text-slate-500">
         Already have an account? <a href="/login" className="text-ember">Sign in</a>
