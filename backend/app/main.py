@@ -10,6 +10,7 @@ from app.core.rate_limit import limiter
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.logging import LoggingMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
+from app.middleware.request_timeout import RequestTimeoutMiddleware
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -36,6 +37,7 @@ app.add_middleware(
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(LoggingMiddleware)
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(RequestTimeoutMiddleware)
 
 
 @app.get("/")

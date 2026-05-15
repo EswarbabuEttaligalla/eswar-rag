@@ -1,4 +1,9 @@
 export function getApiErrorMessage(error, fallbackMessage) {
+  const uploadError = error?.response?.data?.error;
+  if (typeof uploadError === "string" && uploadError.trim()) {
+    return uploadError;
+  }
+
   const detail = error?.response?.data?.detail;
   if (typeof detail === "string" && detail.trim()) {
     return detail;

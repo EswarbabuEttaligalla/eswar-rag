@@ -1,5 +1,4 @@
 --prefer-binary
-
 fastapi==0.111.0
 uvicorn[standard]==0.30.1
 
@@ -21,17 +20,10 @@ redis==5.0.4
 rq==1.16.1
 
 chromadb==0.5.5
-
-sentence-transformers==2.7.0
-transformers==4.41.2
-scikit-learn==1.5.1
-
-langchain==0.2.17
-langchain-community==0.2.19
+openai==1.109.1
 langchain-core==0.2.43
-
-huggingface-hub==0.23.3
-openai==1.30.1
+langchain-openai==0.1.20
+langchain-text-splitters==0.2.2
 
 pypdf==4.2.0
 pdfplumber==0.11.0

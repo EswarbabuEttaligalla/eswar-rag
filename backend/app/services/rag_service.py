@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import json
 from fastapi import HTTPException
-from huggingface_hub import InferenceClient
 from openai import AsyncOpenAI
 
 from app.core.config import settings
@@ -15,56 +15,34 @@ from app.services.retrieval_service import RetrievalService
 from app.utils.security import is_prompt_injection
 
 
+logger = logging.getLogger(__name__)
+
+
 class LLMClient:
     def __init__(self):
-        self.provider = settings.LLM_PROVIDER
         self.openai_client = None
-        self.hf_client = None
-        if self.provider == "openai":
-            if not settings.OPENAI_API_KEY:
-                raise RuntimeError("OPENAI_API_KEY not configured")
-            self.openai_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-        elif self.provider == "huggingface":
-            if not settings.HUGGINGFACEHUB_API_TOKEN:
-                raise RuntimeError("HUGGINGFACEHUB_API_TOKEN not configured")
-            self.hf_client = InferenceClient(
-                model=settings.HUGGINGFACE_MODEL,
-                token=settings.HUGGINGFACEHUB_API_TOKEN,
+        if settings.OPENAI_API_KEY:
+            self.openai_client = AsyncOpenAI(
+                api_key=settings.OPENAI_API_KEY,
+                timeout=settings.OPENAI_REQUEST_TIMEOUT_SECONDS,
+                max_retries=settings.OPENAI_MAX_RETRIES,
             )
 
     async def generate(self, prompt: str) -> str:
-        if self.provider == "openai":
-            response = await self.openai_client.chat.completions.create(
+        if self.openai_client is None:
+            raise RuntimeError("OPENAI_API_KEY not configured")
+        response = await asyncio.wait_for(
+            self.openai_client.chat.completions.create(
                 model=settings.OPENAI_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=settings.TEMPERATURE,
                 max_tokens=settings.MAX_TOKENS,
-            )
-            return response.choices[0].message.content or ""
-        if self.provider == "huggingface":
-            return await asyncio.to_thread(
-                self.hf_client.text_generation,
-                prompt,
-                max_new_tokens=settings.MAX_TOKENS,
-                temperature=settings.TEMPERATURE,
-                return_full_text=False,
-            )
-        raise RuntimeError("Unsupported LLM provider")
+            ),
+            timeout=settings.OPENAI_REQUEST_TIMEOUT_SECONDS,
+        )
+        return response.choices[0].message.content or ""
 
     async def stream(self, prompt: str):
-        if self.provider == "openai":
-            stream = await self.openai_client.chat.completions.create(
-                model=settings.OPENAI_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=settings.TEMPERATURE,
-                max_tokens=settings.MAX_TOKENS,
-                stream=True,
-            )
-            async for chunk in stream:
-                delta = chunk.choices[0].delta.content
-                if delta:
-                    yield delta
-            return
         text = await self.generate(prompt)
         for i in range(0, len(text), 20):
             yield text[i : i + 20]
@@ -99,8 +77,9 @@ class RagService:
         if cached:
             return cached
 
-        chunks, query_embedding = await self.retrieval_service.retrieve(
-            question, user_id=user_id, top_k=top_k, filters=filters
+        chunks, query_embedding = await asyncio.wait_for(
+            self.retrieval_service.retrieve(question, user_id=user_id, top_k=top_k, filters=filters),
+            timeout=settings.REQUEST_TIMEOUT_SECONDS,
         )
         if not chunks:
             empty_response = {
@@ -113,8 +92,9 @@ class RagService:
         context = self._build_context(chunks)
         prompt = build_prompt(context, question, history)
         try:
-            answer = await self._llm().generate(prompt)
-        except Exception:
+            answer = await asyncio.wait_for(self._llm().generate(prompt), timeout=settings.OPENAI_REQUEST_TIMEOUT_SECONDS)
+        except Exception as exc:
+            logger.warning("LLM generation failed, using fallback answer: %s", exc)
             answer = self._build_fallback_answer(question, chunks)
 
         chunk_embeddings = [item.get("embedding", []) for item in chunks]
@@ -133,15 +113,19 @@ class RagService:
     ):
         if is_prompt_injection(question):
             raise HTTPException(status_code=400, detail="Potential prompt injection detected")
-        chunks, _ = await self.retrieval_service.retrieve(question, user_id=user_id, top_k=top_k, filters=filters)
+        chunks, _ = await asyncio.wait_for(
+            self.retrieval_service.retrieve(question, user_id=user_id, top_k=top_k, filters=filters),
+            timeout=settings.REQUEST_TIMEOUT_SECONDS,
+        )
         if not chunks:
             yield "I do not have enough information to answer that question."
             return
         context = self._build_context(chunks)
         prompt = build_prompt(context, question, history)
         try:
-            async for token in self._llm().stream(prompt):
-                yield token
+            answer = await asyncio.wait_for(self._llm().generate(prompt), timeout=settings.OPENAI_REQUEST_TIMEOUT_SECONDS)
+            for i in range(0, len(answer), 20):
+                yield answer[i : i + 20]
         except Exception:
             yield self._build_fallback_answer(question, chunks)
 

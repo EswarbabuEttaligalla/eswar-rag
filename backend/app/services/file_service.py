@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
+import logging
 import pandas as pd
 import pdfplumber
 from fastapi import HTTPException, UploadFile
@@ -12,6 +13,9 @@ from pypdf import PdfReader
 from app.core.config import settings
 from app.utils.file_utils import get_extension, sanitize_filename, validate_upload_file
 from app.utils.text_utils import normalize_text
+
+
+logger = logging.getLogger(__name__)
 
 
 class FileService:
@@ -25,18 +29,24 @@ class FileService:
 
         os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 
-        size = 0
-        with open(path, "wb") as out:
-            while True:
-                chunk = await file.read(1024 * 1024)
-                if not chunk:
-                    break
-                size += len(chunk)
-                if size > max_bytes:
-                    raise HTTPException(status_code=400, detail="File too large")
-                out.write(chunk)
+        def _write_file() -> int:
+            size = 0
+            file.file.seek(0)
+            with open(path, "wb") as out:
+                while True:
+                    chunk = file.file.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    size += len(chunk)
+                    if size > max_bytes:
+                        raise HTTPException(status_code=400, detail="File too large")
+                    out.write(chunk)
+            return size
 
-        await file.close()
+        try:
+            size = await asyncio.to_thread(_write_file)
+        finally:
+            await file.close()
         return path, size, stored_name
 
     async def extract_text(self, file_path: str) -> str:

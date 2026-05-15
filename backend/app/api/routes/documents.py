@@ -1,6 +1,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -19,27 +20,31 @@ async def upload_document(
     session: AsyncSession = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    service = DocumentService(session)
-    document = await service.upload(user.id, file)
     try:
-        await AnalyticsService(session).record_event(
-            "upload",
-            user_id=user.id,
-            payload={"document_id": str(document.id), "size": document.size},
+        service = DocumentService(session)
+        document = await service.upload(user.id, file)
+        try:
+            await AnalyticsService(session).record_event(
+                "upload",
+                user_id=user.id,
+                payload={"document_id": str(document.id), "size": document.size},
+            )
+        except Exception as exc:
+            logger.warning("Upload analytics recording failed for document %s: %s", document.id, exc)
+        return DocumentUploadResponse(
+            document=DocumentOut(
+                id=str(document.id),
+                filename=document.filename,
+                content_type=document.content_type,
+                size=document.size,
+                status=document.status,
+                metadata=document.meta,
+                created_at=document.created_at,
+            )
         )
     except Exception as exc:
-        logger.warning("Upload analytics recording failed for document %s: %s", document.id, exc)
-    return DocumentUploadResponse(
-        document=DocumentOut(
-            id=str(document.id),
-            filename=document.filename,
-            content_type=document.content_type,
-            size=document.size,
-            status=document.status,
-            metadata=document.meta,
-            created_at=document.created_at,
-        )
-    )
+        logger.exception("upload failed")
+        return JSONResponse(status_code=500, content={"success": False, "error": str(exc)})
 
 
 @router.get("/", response_model=list[DocumentOut])

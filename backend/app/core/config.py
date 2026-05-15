@@ -48,20 +48,22 @@ class Settings(BaseSettings):
     PINECONE_ENV: Optional[str] = None
     PINECONE_INDEX: Optional[str] = None
 
-    EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
+    OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
     EMBEDDING_CACHE_TTL_SECONDS: int = 86400
     MAX_BATCH_EMBEDDINGS: int = 64
+    EMBEDDING_TIMEOUT_SECONDS: int = 60
+    VECTOR_STORE_TIMEOUT_SECONDS: int = 60
+    OPENAI_REQUEST_TIMEOUT_SECONDS: int = 60
+    REQUEST_TIMEOUT_SECONDS: int = 120
 
     CHUNK_SIZE: int = 1000
     CHUNK_OVERLAP: int = 200
     MAX_CONTEXT_CHUNKS: int = 6
     HYBRID_ALPHA: float = 0.7
 
-    LLM_PROVIDER: str = "openai"
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_MODEL: str = "gpt-4o-mini"
-    HUGGINGFACEHUB_API_TOKEN: Optional[str] = None
-    HUGGINGFACE_MODEL: str = "mistralai/Mistral-7B-Instruct-v0.2"
+    OPENAI_MAX_RETRIES: int = 2
     MAX_TOKENS: int = 512
     TEMPERATURE: float = 0.2
 

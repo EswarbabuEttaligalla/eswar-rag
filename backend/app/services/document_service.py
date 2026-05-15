@@ -1,17 +1,20 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import uuid
-from fastapi import HTTPException, UploadFile
-from redis import Redis
-from redis.exceptions import RedisError
-from rq import Queue
 
-from app.core.config import settings, build_redis_url
+from fastapi import HTTPException, UploadFile
+
+from app.core.config import settings
+from app.core.logging import get_logger
 from app.models.chunk import Chunk
 from app.models.document import Document
 from app.repositories.chunk_repo import ChunkRepository
 from app.repositories.document_repo import DocumentRepository
+
+
+logger = get_logger(__name__)
 
 
 class DocumentService:
@@ -28,15 +31,22 @@ class DocumentService:
         self.embedding_service = EmbeddingService()
         self._vector_store = None
 
-    def _get_vector_store(self):
+    async def _get_vector_store(self):
         if self._vector_store is None:
             from app.services.vector_store_service import VectorStoreService
 
-            self._vector_store = VectorStoreService().store
+            self._vector_store = await asyncio.to_thread(lambda: VectorStoreService().store)
         return self._vector_store
 
     async def upload(self, owner_id, file: UploadFile) -> Document:
+        logger.info(
+            "upload received",
+            owner_id=str(owner_id),
+            filename=file.filename,
+            content_type=file.content_type,
+        )
         path, size, stored_name = await self.file_service.save_upload(file)
+        logger.info("file saved", owner_id=str(owner_id), path=path, size=size)
         document = Document(
             owner_id=owner_id,
             filename=stored_name,
@@ -46,14 +56,24 @@ class DocumentService:
             meta={"original_name": file.filename, "path": path},
         )
         document = await self.document_repo.create(document)
-        if settings.ASYNC_PROCESSING:
-            try:
-                self.enqueue_processing(document.id, owner_id)
-            except RedisError:
-                await self.process_document(document.id, owner_id)
-        else:
-            await self.process_document(document.id, owner_id)
+        self._schedule_processing(document.id, owner_id)
+        logger.info("upload success", document_id=str(document.id), owner_id=str(owner_id))
         return document
+
+    def _schedule_processing(self, document_id, owner_id) -> None:
+        task = asyncio.create_task(self.process_document(document_id, owner_id))
+
+        def _log_task_result(completed_task: asyncio.Task) -> None:
+            try:
+                completed_task.result()
+            except Exception:
+                logger.exception(
+                    "background document processing failed",
+                    document_id=str(document_id),
+                    owner_id=str(owner_id),
+                )
+
+        task.add_done_callback(_log_task_result)
 
     async def process_document(self, document_id, owner_id) -> None:
         if isinstance(document_id, str):
@@ -67,15 +87,27 @@ class DocumentService:
             raise HTTPException(status_code=403, detail="Forbidden")
 
         try:
-            vector_store = self._get_vector_store()
+            vector_store = await self._get_vector_store()
+            logger.info("chunking started", document_id=str(document_id), owner_id=str(owner_id))
             await self.document_repo.update_status(document_id, "processing")
             file_path = document.meta.get("path") or os.path.join(settings.UPLOAD_DIR, document.filename)
             text = await self.file_service.extract_text(file_path)
-            chunks = self.chunking_service.split(text)
+            chunks = await asyncio.wait_for(
+                asyncio.to_thread(self.chunking_service.split, text),
+                timeout=settings.REQUEST_TIMEOUT_SECONDS,
+            )
+            logger.info("chunking completed", document_id=str(document_id), chunk_count=len(chunks))
             if not chunks:
                 await self.document_repo.update_status(document_id, "processed")
+                logger.info("upload success", document_id=str(document_id), message="no chunks extracted")
                 return
-            embeddings = await self.embedding_service.embed_texts(chunks)
+
+            logger.info("embedding started", document_id=str(document_id), chunk_count=len(chunks))
+            embeddings = await asyncio.wait_for(
+                self.embedding_service.embed_texts(chunks),
+                timeout=settings.EMBEDDING_TIMEOUT_SECONDS,
+            )
+            logger.info("embedding completed", document_id=str(document_id), embedding_count=len(embeddings))
 
             chunk_models: list[Chunk] = []
             ids: list[str] = []
@@ -96,10 +128,17 @@ class DocumentService:
                 ids.append(str(chunk_id))
                 metadatas.append(metadata)
 
-            vector_store.upsert(ids=ids, embeddings=embeddings, documents=chunks, metadatas=metadatas)
+            logger.info("vector insertion started", document_id=str(document_id), chunk_count=len(chunk_models))
+            await asyncio.wait_for(
+                asyncio.to_thread(vector_store.upsert, ids, embeddings, chunks, metadatas),
+                timeout=settings.VECTOR_STORE_TIMEOUT_SECONDS,
+            )
             await self.chunk_repo.create_many(chunk_models)
+            logger.info("vector insertion completed", document_id=str(document_id), chunk_count=len(chunk_models))
             await self.document_repo.update_status(document_id, "processed")
+            logger.info("upload success", document_id=str(document_id), status="processed")
         except Exception:
+            logger.exception("upload failure", document_id=str(document_id), owner_id=str(owner_id))
             await self.document_repo.update_status(document_id, "failed")
             raise
 
@@ -110,12 +149,10 @@ class DocumentService:
         document = await self.document_repo.get_by_id(document_id)
         if not document or str(document.owner_id) != str(owner_id):
             raise HTTPException(status_code=404, detail="Document not found")
-        vector_store = self._get_vector_store()
-        vector_store.delete(filters={"document_id": str(document_id)})
+        vector_store = await self._get_vector_store()
+        await asyncio.wait_for(
+            asyncio.to_thread(vector_store.delete, None, {"document_id": str(document_id)}),
+            timeout=settings.VECTOR_STORE_TIMEOUT_SECONDS,
+        )
         await self.chunk_repo.delete_by_document(document_id)
         await self.document_repo.delete(document_id)
-
-    def enqueue_processing(self, document_id, owner_id) -> None:
-        redis_conn = Redis.from_url(build_redis_url())
-        queue = Queue(settings.RQ_QUEUE_NAME, connection=redis_conn)
-        queue.enqueue("app.workers.tasks.process_document_job", str(document_id), str(owner_id))

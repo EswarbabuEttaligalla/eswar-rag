@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 
 from app.embeddings.cache import EmbeddingCache
-from app.embeddings.hf import get_model
+from app.embeddings.openai_embeddings import get_embeddings
 from app.core.config import settings
+
+
+logger = logging.getLogger(__name__)
 
 
 class EmbeddingService:
@@ -29,28 +33,37 @@ class EmbeddingService:
                 missing_keys.append(key)
 
         if missing:
-            model = get_model()
+            embeddings_client = get_embeddings()
             batch_size = settings.MAX_BATCH_EMBEDDINGS
             for start in range(0, len(missing), batch_size):
                 batch = missing[start : start + batch_size]
                 batch_indices = missing_indices[start : start + batch_size]
                 batch_keys = missing_keys[start : start + batch_size]
-                embeddings = await asyncio.to_thread(
-                    model.encode,
-                    batch,
-                    normalize_embeddings=True,
-                    convert_to_numpy=False,
-                )
-                for idx, key, emb in zip(batch_indices, batch_keys, embeddings):
-                    vector = emb.tolist() if hasattr(emb, "tolist") else list(emb)
+                try:
+                    vectors = await asyncio.wait_for(
+                        embeddings_client.aembed_documents(batch),
+                        timeout=settings.EMBEDDING_TIMEOUT_SECONDS,
+                    )
+                except asyncio.TimeoutError as exc:
+                    logger.exception("Embedding batch timed out")
+                    raise RuntimeError("Embedding request timed out") from exc
+                for idx, key, vector in zip(batch_indices, batch_keys, vectors):
                     results[idx] = vector
                     await self.cache.set(key, vector)
 
         return [vector or [] for vector in results]
 
     async def embed_query(self, text: str) -> list[float]:
-        return (await self.embed_texts([text]))[0]
+        embeddings_client = get_embeddings()
+        try:
+            return await asyncio.wait_for(
+                embeddings_client.aembed_query(text),
+                timeout=settings.EMBEDDING_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError as exc:
+            logger.exception("Embedding query timed out")
+            raise RuntimeError("Embedding request timed out") from exc
 
     def _make_key(self, text: str) -> str:
         hashed = hashlib.sha256(text.encode("utf-8")).hexdigest()
-        return f"emb:{settings.EMBEDDING_MODEL}:{hashed}"
+        return f"emb:{settings.OPENAI_EMBEDDING_MODEL}:{hashed}"
