@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
     JWT_ALGORITHM: str = "HS256"
     PASSWORD_BCRYPT_ROUNDS: int = 12
-    ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:5174,http://localhost:3000"
+    ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:5174,http://localhost:3000,https://eswar-rag.vercel.app"
 
     POSTGRES_HOST: str = "postgres"
     POSTGRES_PORT: int = 5432
