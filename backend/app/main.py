@@ -22,6 +22,9 @@ app = FastAPI(
 app.state.limiter = limiter
 
 allowed_origins = [origin.strip() for origin in settings.ALLOWED_ORIGINS.split(",") if origin.strip()]
+production_frontend_origin = "https://eswar-rag.vercel.app"
+if production_frontend_origin not in allowed_origins:
+    allowed_origins.append(production_frontend_origin)
 
 app.add_middleware(
     CORSMiddleware,
